@@ -1,26 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>VAULTBREAK — a stealth heist game</title>
+<title>VAULTBREAK — a night-gallery heist</title>
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: #0b0b12;
-    height: 100%;
-  }
-  body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  canvas {
-    display: block;
-    width: 1280px;
-    height: 720px;
-    background: #262133;
-  }
+  html, body { margin: 0; padding: 0; background: #14101f; }
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  canvas { display: block; background: #262133; }
 </style>
 </head>
 <body>
@@ -32,7 +18,10 @@
 <script src="src/world.js"></script>
 <script src="src/guards.js"></script>
 <script src="src/tools.js"></script>
-<script src="src/render.js"></script>
+<script src="src/render-floor.js"></script>
+<script src="src/render-light.js"></script>
+<script src="src/render-actors.js"></script>
+<script src="src/render-hud.js"></script>
 <script src="src/shots.js"></script>
 <script src="src/main.js"></script>
 </body>
