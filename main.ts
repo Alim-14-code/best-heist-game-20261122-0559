@@ -1,4 +1,4 @@
-// VAULTBREAK — hand-in program for best-heist-game-20261122-0559.
+// VAULTBREAK v2 — hand-in program for best-heist-game-20261122-0559.
 // Copies game/ and screenshots/ from this repository to the output
 // directory and writes /output/dossier.json with buildDossier from the
 // kit's vendor/makefun-game.ts. Outside the grader, MAKEFUN_OUTPUT_DIR
