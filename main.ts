@@ -1,82 +1,101 @@
-// VAULTBREAK hand-in program for best-heist-game-20261122-0559.
-// Copies game/ and screenshots/ from this repository to the output
-// directory and writes /output/dossier.json with buildDossier from the
-// kit's vendor/makefun-game.ts. Outside the grader, MAKEFUN_OUTPUT_DIR
-// stands in for /output. Verifies determinism: the dossier is rebuilt
-// from the written output and from a second clean build, and both must
-// match the written bytes exactly.
+// VAULTBREAK — the hand-in program. Standard library only: it copies
+// game/ and screenshots/ from this repository into the output directory
+// and writes /output/dossier.json with buildDossier from the kit's vendor
+// library. It never deletes the output directory itself — in the grader
+// /output is a mounted volume and removing it fails — it clears only the
+// directory's contents. It verifies determinism: it builds twice into two
+// scratch directories and refuses to hand in unless both builds are
+// byte-identical.
 import { buildDossier } from './vendor/makefun-game.ts';
 import {
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 
-const REPO_ROOT = dirname(fileURLToPath(import.meta.url));
-const OUT = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+const root = dirname(fileURLToPath(import.meta.url));
 
-const CAPS = {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-  game_path_max_bytes: 1000,
-};
-
+// Clear only a directory's contents, never the directory itself.
 function clearDirContents(dir) {
-  // Clear only the contents of dir, never dir itself: in the grader
-  // /output is a mounted volume and removing the mount point fails
-  // with EBUSY. Make the directory first, then list and remove its
-  // children one by one.
   mkdirSync(dir, { recursive: true });
   for (const entry of readdirSync(dir)) {
     rmSync(join(dir, entry), { recursive: true, force: true });
   }
 }
 
-function buildInto(dir) {
-  clearDirContents(dir);
-  mkdirSync(join(dir, 'game'), { recursive: true });
-  mkdirSync(join(dir, 'screenshots'), { recursive: true });
-  cpSync(join(REPO_ROOT, 'game'), join(dir, 'game'), { recursive: true });
-  cpSync(join(REPO_ROOT, 'screenshots'), join(dir, 'screenshots'), { recursive: true });
-  const dossier = buildDossier(dir, CAPS);
-  writeFileSync(join(dir, 'dossier.json'), dossier);
-  return dossier;
-}
-
-const dossier = buildInto(OUT);
-
-// Self-check 1: rebuild the dossier from the written output; it must
-// equal the bytes just written (buildDossier reads game/ + screenshots/
-// only, so dossier.json itself does not affect the rebuild).
-const rebuilt = buildDossier(OUT, CAPS);
-const written = readFileSync(join(OUT, 'dossier.json'));
-if (!Buffer.from(rebuilt).equals(written)) {
-  throw new Error('dossier.json does not match a rebuild of the output');
-}
-
-// Self-check 2: a second clean build in a scratch directory must produce
-// byte-identical output.
-const scratch = mkdtempSync(join(tmpdir(), 'vaultbreak-'));
-try {
-  const dossier2 = buildInto(scratch);
-  if (!Buffer.from(dossier2).equals(Buffer.from(dossier))) {
-    throw new Error('second clean build produced a different dossier');
+function copyTree(src, dst) {
+  mkdirSync(dst, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const from = join(src, entry.name);
+    const to = join(dst, entry.name);
+    if (entry.isDirectory()) copyTree(from, to);
+    else cpSync(from, to);
   }
-} finally {
-  rmSync(scratch, { recursive: true, force: true });
 }
 
-if (!existsSync(join(OUT, 'game', 'index.html'))) {
-  throw new Error('game/index.html missing from output');
+function listFiles(dir, prefix, out) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    const rel = prefix ? prefix + '/' + entry.name : entry.name;
+    if (entry.isDirectory()) listFiles(path, rel, out);
+    else out.push(rel);
+  }
+  return out;
 }
-console.log(`VAULTBREAK hand-in complete: ${OUT} (${written.length} byte dossier.json)`);
+
+function buildOnce(target) {
+  clearDirContents(target);
+  copyTree(join(root, 'game'), join(target, 'game'));
+  copyTree(join(root, 'screenshots'), join(target, 'screenshots'));
+  const dossier = buildDossier(target, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+  });
+  writeFileSync(join(target, 'dossier.json'), dossier);
+}
+
+function assertSameBytes(a, b) {
+  const filesA = listFiles(a, '', []).sort();
+  const filesB = listFiles(b, '', []).sort();
+  if (filesA.join('\n') !== filesB.join('\n')) {
+    throw new Error('determinism check failed: file lists differ');
+  }
+  for (const rel of filesA) {
+    const bufA = readFileSync(join(a, rel));
+    const bufB = readFileSync(join(b, rel));
+    if (!bufA.equals(bufB)) {
+      throw new Error('determinism check failed: ' + rel + ' differs between builds');
+    }
+  }
+}
+
+// Build twice into scratch directories and compare byte for byte.
+const scratchA = join(tmpdir(), 'vaultbreak-build-a');
+const scratchB = join(tmpdir(), 'vaultbreak-build-b');
+buildOnce(scratchA);
+buildOnce(scratchB);
+assertSameBytes(scratchA, scratchB);
+
+// Hand in the verified build.
+buildOnce(outDir);
+const written = readFileSync(join(outDir, 'dossier.json'));
+const rebuilt = buildDossier(outDir, {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+});
+if (!written.equals(rebuilt)) {
+  throw new Error('dossier.json does not match a fresh buildDossier run');
+}
+console.log('VAULTBREAK handed in: game/ + screenshots/ + dossier.json in ' + outDir);
