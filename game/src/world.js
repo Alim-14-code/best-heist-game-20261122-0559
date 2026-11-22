@@ -1,184 +1,196 @@
-// VAULTBREAK world: the gallery room, its walls, dressing, loot and exit.
-// All coordinates are in the 1280x720 playfield. Walls are solid
-// axis-aligned rectangles; props are decoration that never blocks movement
-// (except the benches and desk, which are walls too).
-'use strict';
+// VAULTBREAK — the gallery: walls, the vault, the three named lanes, the
+// laser grid, shadow pools, loot, props and the EXIT. Everything here is
+// plain data plus geometry helpers; nothing in this file draws.
+var VB = window.VB || (window.VB = {});
 
-const VBWorld = {
-  // The vault room, top-centre. Its bottom wall has a single door gap
-  // (x 600..680): the only way in to the diamond.
-  VAULT: { x: 480, y: 60, w: 320, h: 200 },
+VB.buildWorld = function buildWorld() {
+  var C = VB.CFG;
+  var W = C.W;
+  var H = C.H;
+  var T = C.WALL;
 
-  build: function () {
-    const walls = [
-      // Outer border.
-      { x: 0, y: 0, w: 1280, h: 24 },
-      { x: 0, y: 696, w: 1280, h: 24 },
-      { x: 0, y: 0, w: 24, h: 720 },
-      { x: 1256, y: 0, w: 24, h: 720 },
-      // Vault room: top wall, left wall, right wall, bottom wall in two
-      // pieces with the door gap between them.
-      { x: 480, y: 60, w: 320, h: 24 },
-      { x: 480, y: 60, w: 24, h: 200 },
-      { x: 776, y: 60, w: 24, h: 200 },
-      { x: 480, y: 236, w: 120, h: 24 },
-      { x: 680, y: 236, w: 120, h: 24 },
-      // Lane walls that split the floor into three routes.
-      { x: 120, y: 380, w: 240, h: 24 },
-      { x: 920, y: 380, w: 240, h: 24 },
-      // Centre pillars.
-      { x: 556, y: 440, w: 24, h: 84 },
-      { x: 700, y: 440, w: 24, h: 84 },
-      // Upper side blocks (cover near the side loot).
-      { x: 120, y: 150, w: 24, h: 120 },
-      { x: 1136, y: 150, w: 24, h: 120 },
-      // Security desk near the bottom centre.
-      { x: 560, y: 560, w: 160, h: 40 },
-    ];
+  // Solid rectangles {x, y, w, h}. The vault's bottom wall is two segments
+  // so the door gap (x 600..680) stays open — the only way into the vault.
+  var solids = [
+    { x: 0, y: 0, w: W, h: T }, // top outer wall
+    { x: 0, y: H - T, w: W, h: T }, // bottom outer wall
+    { x: 0, y: 0, w: T, h: H }, // left outer wall
+    { x: W - T, y: 0, w: T, h: H }, // right outer wall
+    { x: 480, y: 60, w: 320, h: 24 }, // vault top wall
+    { x: 480, y: 60, w: 24, h: 200 }, // vault left wall
+    { x: 776, y: 60, w: 24, h: 200 }, // vault right wall
+    { x: 480, y: 236, w: 120, h: 24 }, // vault bottom wall, left of the door
+    { x: 680, y: 236, w: 120, h: 24 }, // vault bottom wall, right of the door
+    { x: 392, y: 300, w: 16, h: 140 }, // west lane divider, upper part
+    { x: 392, y: 500, w: 16, h: 120 }, // west lane divider, lower part
+    { x: 872, y: 300, w: 16, h: 80 }, // east lane divider, upper part
+    { x: 872, y: 440, w: 16, h: 180 }, // east lane divider, lower part
+    { x: 560, y: 560, w: 160, h: 36 }, // security desk
+    { x: 150, y: 300, w: 120, h: 24 }, // west bench
+    { x: 1010, y: 300, w: 120, h: 24 }, // east bench
+    { x: 520, y: 470, w: 60, h: 24 }, // central bench, left of the carpet
+    { x: 250, y: 600, w: 60, h: 60 }, // sculpture pedestal
+    { x: 120, y: 180, w: 60, h: 40 }, // west display case
+    { x: 1100, y: 180, w: 60, h: 40 }, // east display case
+  ];
 
-    // Gallery dressing: paintings on the walls, glass display cases,
-    // benches and potted plants. Cases and plants are floor dressing
-    // (not solid); benches are low and solid, listed in `benches`.
-    const paintings = [
-      { x: 300, y: 30, w: 90, h: 46, hue: 0 },
-      { x: 890, y: 30, w: 90, h: 46, hue: 1 },
-      { x: 300, y: 644, w: 90, h: 46, hue: 2 },
-      { x: 890, y: 644, w: 90, h: 46, hue: 0 },
-    ];
-    const cases = [
-      { x: 260, y: 110, w: 90, h: 46 },
-      { x: 930, y: 110, w: 90, h: 46 },
-      { x: 260, y: 520, w: 90, h: 46 },
-      { x: 930, y: 520, w: 90, h: 46 },
-    ];
-    const benches = [
-      { x: 600, y: 330, w: 80, h: 46 },
-      { x: 180, y: 470, w: 80, h: 40 },
-      { x: 1020, y: 470, w: 80, h: 40 },
-    ];
-    const plants = [
-      { x: 60, y: 300, r: 20 },
-      { x: 1180, y: 300, r: 20 },
-      { x: 60, y: 620, r: 20 },
-      { x: 1180, y: 620, r: 20 },
-    ];
-    // Benches are solid; add them to the wall list.
-    for (let i = 0; i < benches.length; i++) {
-      walls.push({ x: benches[i].x, y: benches[i].y, w: benches[i].w, h: benches[i].h });
-    }
+  // The vault room itself (floor is pale marble, distinct from the gallery).
+  var vault = { x: 480, y: 60, w: 320, h: 200 };
 
-    const loot = [
-      { id: 'diamond', name: 'Meridian Diamond', x: 640, y: 150, value: 5000, color: '#7fe7ff', r: 20, taken: false },
-      { id: 'gold', name: 'Gold Bars', x: 180, y: 212, value: 800, color: '#ffd94d', r: 12, taken: false },
-      { id: 'cash', name: 'Cash Stack', x: 1100, y: 212, value: 600, color: '#8be06a', r: 12, taken: false },
-      { id: 'emerald', name: 'Emerald Idol', x: 1100, y: 560, value: 1200, color: '#3fe08a', r: 12, taken: false },
-    ];
+  // The laser grid spans the vault door gap and cycles on a timer.
+  var laser = { x0: 600, x1: 680, y: 248, lines: 4 };
 
-    return {
-      walls: walls,
-      paintings: paintings,
-      cases: cases,
-      benches: benches,
-      plants: plants,
-      loot: loot,
-      exit: { x: VB.EXIT.x, y: VB.EXIT.y, w: VB.EXIT.w, h: VB.EXIT.h },
-      start: { x: VB.START.x, y: VB.START.y },
-    };
-  },
+  // The red carpet runner runs down the central lane to the vault door.
+  var carpet = { x: 600, y: 260, w: 80, h: 300 };
 
-  // Move a circle against the walls, axis by axis. Returns the new
-  // position; the circle slides along walls instead of sticking.
-  moveCircle: function (walls, x, y, r, dx, dy) {
-    let nx = x + dx;
-    for (let i = 0; i < walls.length; i++) {
-      const w = walls[i];
-      if (nx + r > w.x && nx - r < w.x + w.w && y + r > w.y && y - r < w.y + w.h) {
-        nx = dx > 0 ? w.x - r : w.x + w.w + r;
-      }
-    }
-    let ny = y + dy;
-    for (let i = 0; i < walls.length; i++) {
-      const w = walls[i];
-      if (nx + r > w.x && nx - r < w.x + w.w && ny + r > w.y && ny - r < w.y + w.h) {
-        ny = dy > 0 ? w.y - r : w.y + w.h + r;
-      }
-    }
-    return { x: nx, y: ny };
-  },
+  // Three named lanes, written on the floor itself so the routes are
+  // literally visible in the cover. The west name sits left of the
+  // sculpture pedestal and above the tool chips, so nothing overlaps it.
+  var lanes = [
+    { name: 'WEST WING', x: 165, y: 620 },
+    { name: 'CENTRAL', x: 640, y: 660 },
+    { name: 'EAST WING', x: 1068, y: 660 },
+  ];
 
-  // Does the segment (x1,y1)-(x2,y2) cross any wall? Used for sight:
-  // a guard cannot see through a wall.
-  blocked: function (walls, x1, y1, x2, y2) {
-    for (let i = 0; i < walls.length; i++) {
-      if (VBWorld.segHitsRect(x1, y1, x2, y2, walls[i])) return true;
-    }
-    return false;
-  },
+  // Pools of deep blue-violet shadow. Standing in one halves how fast
+  // the alarm rises: shadow is safe cover, light is danger.
+  var shadowPools = [
+    { cx: 180, cy: 560, rx: 95, ry: 58 },
+    { cx: 300, cy: 630, rx: 85, ry: 52 },
+    { cx: 1080, cy: 560, rx: 95, ry: 58 },
+    { cx: 640, cy: 480, rx: 105, ry: 62 },
+    { cx: 150, cy: 350, rx: 72, ry: 50 },
+  ];
 
-  // Segment vs axis-aligned rectangle, slab method.
-  segHitsRect: function (x1, y1, x2, y2, r) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    let tmin = 0;
-    let tmax = 1;
-    if (dx === 0) {
-      if (x1 < r.x || x1 > r.x + r.w) return false;
+  // Framed canvases with a tiny landscape inside (horizon + sun or moon),
+  // never a diagonal slash.
+  var paintings = [
+    { x: 150, y: 30, w: 90, h: 56, moon: false },
+    { x: 350, y: 30, w: 90, h: 56, moon: true },
+    { x: 950, y: 30, w: 90, h: 56, moon: false },
+    { x: 1100, y: 30, w: 90, h: 56, moon: true },
+    { x: 30, y: 150, w: 56, h: 90, moon: true },
+    { x: 30, y: 450, w: 56, h: 90, moon: false },
+    { x: 1194, y: 150, w: 56, h: 90, moon: false },
+    { x: 1194, y: 450, w: 56, h: 90, moon: true },
+  ];
+
+  // Potted plants in the corners.
+  var plants = [
+    { x: 62, y: 662 },
+    { x: 1218, y: 662 },
+    { x: 62, y: 82 },
+    { x: 1218, y: 82 },
+  ];
+
+  // Loot. The cash stack sits far enough left that its whole label fits
+  // inside the frame with margin; every loot is fully visible, never
+  // half-hidden behind furniture. Gold bars fill the bottom-left
+  // quadrant, which used to be empty dark floor.
+  var loot = [
+    { id: 'diamond', name: 'MERIDIAN DIAMOND', x: 640, y: 150, value: C.DIAMOND, kind: 'diamond' },
+    { id: 'gold', name: 'GOLD BARS', x: 180, y: 560, value: C.GOLD, kind: 'gold' },
+    { id: 'cash', name: 'CASH STACK', x: 1010, y: 180, value: C.CASH, kind: 'cash' },
+    { id: 'emerald', name: 'EMERALD IDOL', x: 1080, y: 480, value: C.EMERALD, kind: 'emerald' },
+  ];
+
+  var exit = { x: 1150, y: 620, w: 100, h: 76 };
+  var playerStart = { x: 90, y: 640 };
+
+  return {
+    solids: solids,
+    vault: vault,
+    laser: laser,
+    carpet: carpet,
+    lanes: lanes,
+    shadowPools: shadowPools,
+    paintings: paintings,
+    plants: plants,
+    loot: loot,
+    exit: exit,
+    playerStart: playerStart,
+  };
+};
+
+// True when the circle at (x, y) with radius r touches any solid.
+VB.circleHitsSolids = function circleHitsSolids(world, x, y, r) {
+  var solids = world.solids;
+  for (var i = 0; i < solids.length; i++) {
+    var s = solids[i];
+    var cx = Math.max(s.x, Math.min(x, s.x + s.w));
+    var cy = Math.max(s.y, Math.min(y, s.y + s.h));
+    var dx = x - cx;
+    var dy = y - cy;
+    if (dx * dx + dy * dy < r * r) return true;
+  }
+  return false;
+};
+
+// True when the segment from (x0, y0) to (x1, y1) crosses any solid:
+// the line-of-sight test for vision cones.
+VB.segmentBlocked = function segmentBlocked(world, x0, y0, x1, y1) {
+  var solids = world.solids;
+  for (var i = 0; i < solids.length; i++) {
+    if (segmentHitsRect(x0, y0, x1, y1, solids[i])) return true;
+  }
+  return false;
+};
+
+function segmentHitsRect(x0, y0, x1, y1, r) {
+  // Slab method: find the overlap of the segment with the rectangle.
+  var dx = x1 - x0;
+  var dy = y1 - y0;
+  var tmin = 0;
+  var tmax = 1;
+  var p;
+  var q;
+  var axes = [
+    { p: -dx, q: x0 - r.x },
+    { p: dx, q: r.x + r.w - x0 },
+    { p: -dy, q: y0 - r.y },
+    { p: dy, q: r.y + r.h - y0 },
+  ];
+  for (var i = 0; i < axes.length; i++) {
+    p = axes[i].p;
+    q = axes[i].q;
+    if (p === 0) {
+      if (q < 0) return false;
     } else {
-      let t1 = (r.x - x1) / dx;
-      let t2 = (r.x + r.w - x1) / dx;
-      if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
-      if (t1 > tmin) tmin = t1;
-      if (t2 < tmax) tmax = t2;
-      if (tmin > tmax) return false;
-    }
-    if (dy === 0) {
-      if (y1 < r.y || y1 > r.y + r.h) return false;
-    } else {
-      let t1 = (r.y - y1) / dy;
-      let t2 = (r.y + r.h - y1) / dy;
-      if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
-      if (t1 > tmin) tmin = t1;
-      if (t2 < tmax) tmax = t2;
-      if (tmin > tmax) return false;
-    }
-    return true;
-  },
-
-  // Distance from a point along a direction to the nearest wall, capped
-  // at maxLen. Used to raycast vision cones so they stop at walls.
-  rayLen: function (walls, x, y, ang, maxLen) {
-    const dx = Math.cos(ang);
-    const dy = Math.sin(ang);
-    let best = maxLen;
-    for (let i = 0; i < walls.length; i++) {
-      const w = walls[i];
-      let tmin = 0;
-      let tmax = best;
-      let hit = true;
-      if (dx === 0) {
-        if (x < w.x || x > w.x + w.w) hit = false;
+      var t = q / p;
+      if (p < 0) {
+        if (t > tmax) return false;
+        if (t > tmin) tmin = t;
       } else {
-        let t1 = (w.x - x) / dx;
-        let t2 = (w.x + w.w - x) / dx;
-        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
-        if (t1 > tmin) tmin = t1;
-        if (t2 < tmax) tmax = t2;
-        if (tmin > tmax) hit = false;
+        if (t < tmin) return false;
+        if (t < tmax) tmax = t;
       }
-      if (hit) {
-        if (dy === 0) {
-          if (y < w.y || y > w.y + w.h) hit = false;
-        } else {
-          let t1 = (w.y - y) / dy;
-          let t2 = (w.y + w.h - y) / dy;
-          if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
-          if (t1 > tmin) tmin = t1;
-          if (t2 < tmax) tmax = t2;
-          if (tmin > tmax) hit = false;
-        }
-      }
-      if (hit && tmin > 0 && tmin < best) best = tmin;
     }
-    return best;
-  },
+  }
+  return true;
+}
+
+// True when (x, y) stands inside any shadow pool.
+VB.pointInShadow = function pointInShadow(world, x, y) {
+  var pools = world.shadowPools;
+  for (var i = 0; i < pools.length; i++) {
+    var p = pools[i];
+    var dx = (x - p.cx) / p.rx;
+    var dy = (y - p.cy) / p.ry;
+    if (dx * dx + dy * dy <= 1) return true;
+  }
+  return false;
+};
+
+// The laser grid cycles: on for LASER_ON seconds, off for LASER_OFF.
+// True when the grid is live at game time t.
+VB.laserOnAt = function laserOnAt(t) {
+  var C = VB.CFG;
+  var period = C.LASER_ON + C.LASER_OFF;
+  return (t % period) < C.LASER_ON;
+};
+
+// True when (x, y) is inside the vault door gap the laser guards.
+VB.pointInLaserGap = function pointInLaserGap(world, x, y) {
+  var l = world.laser;
+  return x >= l.x0 && x <= l.x1 && y >= l.y - 14 && y <= l.y + 14;
 };

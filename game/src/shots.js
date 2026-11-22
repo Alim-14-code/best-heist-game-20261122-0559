@@ -1,101 +1,158 @@
-// VAULTBREAK staged screenshots (?shot=1..4). Each one freezes a composed
-// frame of the real game — same world, same render path, no special art.
-'use strict';
+// VAULTBREAK — the four staged screenshots. Each shot freezes a composed
+// frame of the real game: same world, same render path, no special-cased
+// art. `?shot=N` in the page URL applies shot N and renders one frame.
+var VB = window.VB || (window.VB = {});
 
-const VBShots = {
-  apply: function (n, game) {
-    game.state = 'playing';
-    game.alarm = 0;
-    game.score = 0;
-    game.lootScore = 0;
-    game.lootTaken = 0;
-    game.timeBonus = 0;
-    game.diamondTaken = false;
-    game.coins = 3;
-    game.emps = 2;
-    game.hunting = false;
-    game.caughtBy = null;
-    game.time = 12; // frozen frame time, so sparkles are deterministic
-    game.elapsed = 0;
-    game.world = VBWorld.build();
-    game.guards = VBGuards.makeGuards();
-    game.cameras = VBGuards.makeCameras();
-    game.coin = { active: false };
-    game.player.x = VB.START.x;
-    game.player.y = VB.START.y;
-    game.player.dir = -Math.PI / 2;
-    game.player.sneaking = false;
-
-    if (n === 1) {
-      // Cover: mid-heist, everything in one frame — the thief sneaking
-      // toward the vault, a coin in flight distracting a guard, cones,
-      // cameras, loot, alarm part-filled, EXIT visible.
-      game.player.x = 520;
-      game.player.y = 400;
-      game.player.dir = -Math.PI / 2;
-      game.player.sneaking = true;
-      game.alarm = 34;
-      game.score = 800;
-      game.lootScore = 800;
-      game.lootTaken = 1;
-      game.world.loot[1].taken = true; // Gold Bars already pocketed
-      const g1 = game.guards[0];
-      const g2 = game.guards[1];
-      const g3 = game.guards[2];
-      g1.x = 470; g1.y = 330; g1.dir = Math.PI;
-      g1.state = 'distracted'; g1.distract = { x: 560, y: 378 }; g1.wait = 3;
-      g2.x = 420; g2.y = 520; g2.dir = Math.PI / 2;
-      g3.x = 760; g3.y = 292; g3.dir = Math.PI;
-      game.coin = {
-        active: true, x: 545, y: 388, sx: 520, sy: 400,
-        tx: 560, ty: 378, t: 0.2, dur: 0.35, landed: false, clearIn: 1.2,
-      };
-      game.cameras[0].angle = Math.PI / 2 + 0.5;
-      game.cameras[1].angle = Math.PI / 2 - 0.4;
-    } else if (n === 2) {
-      // Title screen.
-      game.state = 'title';
-    } else if (n === 3) {
-      // High alarm: the thief at the vault door WITH the diamond secured,
-      // fleeing toward the EXIT, a guard closing in.
-      game.player.x = 640;
-      game.player.y = 300;
-      game.player.dir = 0.55;
-      game.player.sneaking = false;
-      game.alarm = 92;
-      game.score = 5000;
-      game.lootScore = 5000;
-      game.lootTaken = 1;
-      game.diamondTaken = true;
-      game.world.loot[0].taken = true;
-      game.hunting = true;
-      const g1 = game.guards[0];
-      const g2 = game.guards[1];
-      const g3 = game.guards[2];
-      g3.x = 700; g3.y = 292; g3.dir = Math.PI; g3.state = 'hunt'; g3.seen = true;
-      g1.x = 560; g1.y = 330; g1.dir = Math.PI / 2; g1.state = 'hunt';
-      g2.x = 420; g2.y = 420; g2.dir = 0;
-      game.cameras[0].angle = Math.PI / 2 + 0.2;
-      game.cameras[1].angle = Math.PI / 2 + 0.6;
-    } else if (n === 4) {
-      // CAUGHT: a guard reaches the thief, alarm high.
-      game.player.x = 640;
-      game.player.y = 420;
-      game.player.dir = -Math.PI / 2;
-      game.player.sneaking = false;
-      game.alarm = 88;
-      game.score = 5000;
-      game.lootScore = 5000;
-      game.lootTaken = 1;
-      game.diamondTaken = true;
-      game.world.loot[0].taken = true;
-      const g3 = game.guards[2];
-      g3.x = 664; g3.y = 420; g3.dir = Math.PI; g3.state = 'hunt'; g3.seen = true;
-      const g1 = game.guards[0];
-      g1.x = 560; g1.y = 330; g1.dir = Math.PI / 2; g1.state = 'hunt';
-      game.state = 'caught';
-      game.caughtBy = 'Knight';
-      game.cameras[0].angle = Math.PI / 2 + 0.3;
-    }
-  },
+VB.applyShot = function applyShot(game, n) {
+  var C = VB.CFG;
+  VB.resetGame(game);
+  if (n === 1) applyCover(game);
+  else if (n === 2) applyTitle(game);
+  else if (n === 3) applyAlarm(game);
+  else if (n === 4) applyCaught(game);
+  else applyCover(game);
 };
+
+// The cover: mid-heist, everything in one frame. The thief sneaks toward
+// the vault with a coin arcing through the air; the guards' cones are
+// staggered so no two overlap heavily; the camera cones aim at the floor
+// edges; the diamond glows in the vault; the lanes are named; the EXIT
+// is visible; the laser grid is off so the carpet reads clean.
+function applyCover(game) {
+  var C = VB.CFG;
+  game.screen = 'playing';
+  game.time = 4.0; // laser off: (4.0 % 5) = 4.0, past the 3-second on-window
+  game.alarm = 34;
+  game.score = 800;
+  game.lootScore = 800;
+  game.lootTaken.gold = true;
+
+  var p = game.player;
+  p.x = 560;
+  p.y = 470;
+  p.angle = -Math.PI / 2; // facing up, toward the vault
+  p.sneaking = true;
+
+  var rook = game.guards[0];
+  rook.x = 760;
+  rook.y = 400;
+  rook.angle = Math.PI; // facing left, toward the flying coin
+  rook.state = 'distracted';
+  rook.distractX = 700;
+  rook.distractY = 400;
+  rook.distractTimer = 3;
+
+  var bishop = game.guards[1];
+  bishop.x = 280;
+  bishop.y = 560;
+  bishop.angle = -Math.PI / 4; // up-right, away from Rook's cone
+  bishop.state = 'patrol';
+
+  var knight = game.guards[2];
+  knight.x = 700;
+  knight.y = 300;
+  knight.angle = -Math.PI / 2; // facing up, guarding the vault door
+  knight.state = 'patrol';
+
+  game.cameras[0].angle = 2.2; // down-left, toward the floor edge
+  game.cameras[1].angle = 0.94; // down-right, toward the floor edge
+
+  // The coin mid-flight, its dotted arc still visible.
+  game.tools.coin = { x0: 560, y0: 470, x1: 700, y1: 400, t: 0.5, landed: false, ringT: 0 };
+  game.tools.coinsLeft = 2;
+  game.inShadow = VB.pointInShadow(game.world, p.x, p.y);
+}
+
+// The title screen over the dimmed room.
+function applyTitle(game) {
+  game.screen = 'title';
+  game.time = 0;
+  game.player.x = game.world.playerStart.x;
+  game.player.y = game.world.playerStart.y;
+  game.player.angle = -Math.PI / 2;
+}
+
+// High alarm with the diamond secured: the thief at the vault door,
+// fleeing toward the EXIT, a guard closing in. The vault is empty, but
+// the HUD loot count carries a diamond glyph so it reads as "taken".
+function applyAlarm(game) {
+  game.screen = 'playing';
+  game.time = 4.0; // laser off: the thief just slipped through the gap
+  game.alarm = 92;
+  game.score = 5800;
+  game.lootScore = 5800;
+  game.lootTaken.diamond = true;
+  game.lootTaken.gold = true;
+
+  var p = game.player;
+  p.x = 640;
+  p.y = 310;
+  p.angle = 0.65; // facing down-right, toward the EXIT
+  p.sneaking = false;
+
+  var knight = game.guards[2];
+  knight.x = 700;
+  knight.y = 345;
+  knight.angle = Math.atan2(p.y - knight.y, p.x - knight.x);
+  knight.state = 'seen';
+  knight.seeTimer = 1.2;
+
+  var rook = game.guards[0];
+  rook.x = 480;
+  rook.y = 430;
+  rook.angle = -0.5;
+  rook.state = 'patrol';
+
+  var bishop = game.guards[1];
+  bishop.x = 300;
+  bishop.y = 480;
+  bishop.angle = 0;
+  bishop.state = 'patrol';
+
+  game.cameras[0].angle = 2.2;
+  game.cameras[1].angle = 0.94;
+  game.inShadow = false;
+}
+
+// The caught moment: the guard reaching the thief, alarm at 100 percent.
+// The "CAUGHT!" text is a small banner at the top, never a panel over
+// the action, so the moment itself stays visible.
+function applyCaught(game) {
+  game.screen = 'caught';
+  game.time = 4.0;
+  game.alarm = 100;
+  game.score = 5000;
+  game.lootScore = 5000;
+  game.lootTaken.diamond = true;
+  game.caughtBy = 'Rook';
+
+  var p = game.player;
+  p.x = 640;
+  p.y = 440;
+  p.angle = Math.PI; // facing back at the guard
+  p.sneaking = false;
+
+  var rook = game.guards[0];
+  rook.x = 624;
+  rook.y = 438;
+  rook.angle = 0; // reaching toward the thief
+  rook.state = 'seen';
+  rook.seeTimer = 2.0;
+
+  var knight = game.guards[2];
+  knight.x = 760;
+  knight.y = 380;
+  knight.angle = Math.PI; // facing left, toward the scene
+  knight.state = 'seen';
+  knight.seeTimer = 1.5;
+
+  var bishop = game.guards[1];
+  bishop.x = 300;
+  bishop.y = 500;
+  bishop.angle = 0;
+  bishop.state = 'patrol';
+
+  game.cameras[0].angle = 2.2;
+  game.cameras[1].angle = 0.94;
+  game.inShadow = false;
+}

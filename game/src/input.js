@@ -1,64 +1,70 @@
-// VAULTBREAK keyboard input. Tracks held keys and edge-triggered presses
-// (a press fires once when the key goes down, not while it is held).
-'use strict';
+// VAULTBREAK — keyboard input. WASD or arrows to move, Shift to sneak,
+// Q to throw a coin, E to fire an EMP, P to pause, Enter to start.
+var VB = window.VB || (window.VB = {});
 
-const VBInput = {
-  held: {},
-  pressed: {},
-  onKey: null, // optional callback(code) for edge presses
+VB.Input = (function buildInput() {
+  var held = {};
+  var pressed = {};
 
-  init: function () {
-    const self = this;
-    window.addEventListener('keydown', function (e) {
-      if (e.code === 'ArrowUp' || e.code === 'ArrowDown' ||
-          e.code === 'ArrowLeft' || e.code === 'ArrowRight' ||
-          e.code === 'Space') {
-        e.preventDefault();
-      }
-      if (!e.repeat) {
-        self.pressed[e.code] = true;
-        if (self.onKey) self.onKey(e.code);
-      }
-      self.held[e.code] = true;
-    });
-    window.addEventListener('keyup', function (e) {
-      self.held[e.code] = false;
-    });
-    window.addEventListener('blur', function () {
-      self.held = {};
-    });
-  },
+  var MOVE_KEYS = {
+    KeyW: 'up', ArrowUp: 'up',
+    KeyS: 'down', ArrowDown: 'down',
+    KeyA: 'left', ArrowLeft: 'left',
+    KeyD: 'right', ArrowRight: 'right',
+  };
 
-  down: function (code) {
-    return !!this.held[code];
-  },
-
-  // True once, on the frame after the key went down.
-  hit: function (code) {
-    return !!this.pressed[code];
-  },
-
-  // Movement vector from WASD or the arrow keys, normalised.
-  move: function () {
-    let x = 0;
-    let y = 0;
-    if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
-    if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
-    if (this.down('KeyW') || this.down('ArrowUp')) y -= 1;
-    if (this.down('KeyS') || this.down('ArrowDown')) y += 1;
-    if (x !== 0 && y !== 0) {
-      const inv = 1 / Math.sqrt(2);
-      x *= inv;
-      y *= inv;
+  function onKeyDown(e) {
+    if (MOVE_KEYS[e.code] || e.code === 'ShiftLeft' || e.code === 'ShiftRight'
+      || e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyP'
+      || e.code === 'Enter') {
+      e.preventDefault();
     }
-    return { x: x, y: y };
-  },
+    if (!held[e.code]) pressed[e.code] = true;
+    held[e.code] = true;
+    VB.Audio.unlock();
+  }
 
-  sneaking: function () {
-    return this.down('ShiftLeft') || this.down('ShiftRight');
-  },
+  function onKeyUp(e) {
+    held[e.code] = false;
+  }
 
-  endFrame: function () {
-    this.pressed = {};
-  },
-};
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+
+  return {
+    moveVector: function moveVector() {
+      var x = 0;
+      var y = 0;
+      if (held.KeyA || held.ArrowLeft) x -= 1;
+      if (held.KeyD || held.ArrowRight) x += 1;
+      if (held.KeyW || held.ArrowUp) y -= 1;
+      if (held.KeyS || held.ArrowDown) y += 1;
+      if (x !== 0 && y !== 0) {
+        var len = Math.sqrt(2);
+        x /= len;
+        y /= len;
+      }
+      return { x: x, y: y };
+    },
+    sneaking: function sneaking() {
+      return !!(held.ShiftLeft || held.ShiftRight);
+    },
+    wasPressed: function wasPressed(code) {
+      return !!pressed[code];
+    },
+    endFrame: function endFrame() {
+      pressed = {};
+    },
+    // Test hook: pretend a key was pressed (used by the headless probes).
+    fakePress: function fakePress(code) {
+      pressed[code] = true;
+      held[code] = true;
+    },
+    fakeRelease: function fakeRelease(code) {
+      held[code] = false;
+    },
+    fakeHold: function fakeHold(code) {
+      held[code] = true;
+    },
+  };
+})();
