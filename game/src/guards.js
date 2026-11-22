@@ -1,5 +1,6 @@
 // Guards and cameras: patrol movement, vision cones with line-of-sight,
-// alarm contribution, and the hunt state when the alarm maxes out.
+// alarm contribution, the hunt state when the alarm maxes out, and the
+// distracted state when a tossed coin pulls a guard off its patrol.
 'use strict';
 
 function makeGuard(def) {
@@ -13,10 +14,13 @@ function makeGuard(def) {
     dir: 0, // facing angle; set from the first leg below
     target: 1 - def.start,
     leg: def.start === 0 ? 1 : 0,
-    state: 'patrol', // 'patrol' | 'hunt' | 'return'
+    state: 'patrol', // 'patrol' | 'hunt' | 'return' | 'distracted'
     seen: false, // currently has the thief in its cone
     huntX: 0,
     huntY: 0,
+    investigateX: 0,
+    investigateY: 0,
+    distractTimer: 0,
     stepTimer: 0,
   };
 }
@@ -38,7 +42,8 @@ const Guards = {
     }));
   },
 
-  // One guard step: walk its patrol leg, or chase the thief while hunting.
+  // One guard step: walk its patrol leg, chase the thief while hunting,
+  // or walk to a tossed coin while distracted.
   updateGuard(g, dt, player) {
     if (g.state === 'hunt') {
       const d = dist(g.x, g.y, player.x, player.y);
@@ -50,6 +55,24 @@ const Guards = {
         if (!World.circleHitsWall(nx, g.y, VB.GUARD_R)) g.x = nx;
         if (!World.circleHitsWall(g.x, ny, VB.GUARD_R)) g.y = ny;
       }
+      return;
+    }
+    if (g.state === 'distracted') {
+      g.distractTimer -= dt;
+      const d = dist(g.x, g.y, g.investigateX, g.investigateY);
+      if (d > 6 && g.distractTimer > 0) {
+        const a = angleTo(g.x, g.y, g.investigateX, g.investigateY);
+        g.dir = a;
+        const nx = g.x + Math.cos(a) * VB.GUARD_SPEED * dt;
+        const ny = g.y + Math.sin(a) * VB.GUARD_SPEED * dt;
+        if (!World.circleHitsWall(nx, g.y, VB.GUARD_R)) g.x = nx;
+        if (!World.circleHitsWall(g.x, ny, VB.GUARD_R)) g.y = ny;
+        return;
+      }
+      // Coin checked, or the clink is forgotten: back to the patrol.
+      g.state = 'patrol';
+      const t = g.waypoints[g.target];
+      g.dir = angleTo(g.x, g.y, t[0], t[1]);
       return;
     }
     const t = g.waypoints[g.target];
@@ -75,8 +98,10 @@ const Guards = {
   },
 
   // Can this watcher (guard or camera) see the player right now?
-  // Sneaking halves the effective range.
+  // Sneaking halves the effective range. A distracted guard looks at the
+  // coin, not the thief; a camera blinded by the EMP sees nothing.
   canSee(watcher, range, halfAngle, player, sneaking) {
+    if (watcher.state === 'distracted') return false;
     const effRange = sneaking ? range * 0.55 : range;
     const d = dist(watcher.x, watcher.y, player.x, player.y);
     if (d > effRange) return false;
@@ -98,7 +123,9 @@ const Guards = {
     }
     this.updateCameras(dt, time);
     for (const c of this.cameras) {
-      c.seen = this.canSee(c, VB.CAMERA_RANGE, VB.CAMERA_HALF_ANGLE, player, sneaking);
+      c.seen = Tools.camerasDown
+        ? false
+        : this.canSee(c, VB.CAMERA_RANGE, VB.CAMERA_HALF_ANGLE, player, sneaking);
       if (c.seen) cameraSeen = true;
     }
     return { guardSeen, cameraSeen };

@@ -1,4 +1,4 @@
-// VAULTBREAK — game loop, state machine, alarm, scoring.
+// VAULTBREAK v2 — game loop, state machine, alarm, tools, scoring.
 // States: title -> playing -> paused | caught | escaped.
 'use strict';
 
@@ -25,6 +25,9 @@ const game = {
       timeBonus: this.timeBonus,
       elapsed: Math.round(this.elapsed * 10) / 10,
       hunting: this.hunting,
+      coins: Tools.coins,
+      emp: Tools.emp,
+      empTimer: Math.round(Tools.empTimer * 10) / 10,
       player: { x: Math.round(this.player.x), y: Math.round(this.player.y), sneaking: this.player.sneaking },
       loot: World.loot.map((l) => ({ id: l.id, taken: l.taken })),
       guards: Guards.list.map((g) => ({
@@ -39,6 +42,7 @@ const game = {
   start() {
     World.reset();
     Guards.reset();
+    Tools.reset();
     this.player.x = VB.PLAYER_START.x;
     this.player.y = VB.PLAYER_START.y;
     this.player.dir = -Math.PI / 2;
@@ -71,6 +75,11 @@ const game = {
     this.time += dt;
     this.elapsed += dt;
 
+    // Tools: coin toss pulls a guard away, EMP blinds the cameras loudly.
+    if (Input.wasPressed('q')) Tools.throwCoin(this.player);
+    if (Input.wasPressed('e')) this.alarm += Tools.fireEmp();
+    Tools.update(dt);
+
     // Movement.
     const mv = Input.moveVector();
     this.player.sneaking = Input.sneaking && (mv.x !== 0 || mv.y !== 0);
@@ -95,7 +104,6 @@ const game = {
     // Watchers.
     const seen = Guards.update(dt, this.time, this.player, this.player.sneaking, this.hunting);
     const sneakFactor = this.player.sneaking ? VB.ALARM_SNEAK_FACTOR : 1;
-    const wasSeen = this.alarm > 0 && (seen.guardSeen || seen.cameraSeen);
     if (seen.guardSeen) {
       if (!this._wasGuardSeen) AudioFX.spotted();
       this.alarm += VB.ALARM_GUARD_RATE * sneakFactor * dt;
@@ -176,6 +184,7 @@ function boot() {
   Input.init();
   World.reset();
   Guards.reset();
+  Tools.reset();
 
   // Test / screenshot hook: the live game state, readable from DevTools.
   window.__vaultbreak = game;

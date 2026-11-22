@@ -58,6 +58,18 @@ const AudioFX = {
     this.blip(520, 0.14, 'square', 0.3, 780);
   },
 
+  // Coin toss: a bright metallic clink that fades with distance.
+  coinToss() {
+    this.blip(1900, 0.07, 'square', 0.22, 2400);
+    setTimeout(() => this.blip(2400, 0.06, 'square', 0.18, 1900), 90);
+  },
+
+  // EMP burst: a low zap; the cameras go dark for a while.
+  empBurst() {
+    this.blip(320, 0.28, 'sawtooth', 0.5, 60);
+    setTimeout(() => this.blip(180, 0.2, 'square', 0.3, 50), 120);
+  },
+
   alarmStart() {
     if (this.alarmOn) return;
     this.alarmOn = true;

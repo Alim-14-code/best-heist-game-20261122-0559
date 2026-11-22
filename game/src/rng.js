@@ -12,7 +12,7 @@ function makeRng(seed) {
   };
 }
 
-// Geometry helpers shared by world, guards and render.
+// Geometry helpers shared by world, guards, tools and render.
 function dist(ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
   return Math.sqrt(dx * dx + dy * dy);

@@ -1,6 +1,6 @@
-// Keyboard input: WASD + arrow keys to move, Shift to sneak, P / Escape to
-// pause, Enter to start or restart. Tracks held keys and edge-triggered
-// presses so the game loop can read both.
+// Keyboard input: WASD + arrow keys to move, Shift to sneak, Q to toss a
+// coin, E to fire the EMP, P / Escape to pause, Enter to start or restart.
+// Tracks held keys and edge-triggered presses so the game loop can read both.
 'use strict';
 
 const Input = {
