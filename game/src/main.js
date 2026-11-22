@@ -1,208 +1,220 @@
-// VAULTBREAK v2 — game loop, state machine, alarm, tools, scoring.
-// States: title -> playing -> paused | caught | escaped.
+// VAULTBREAK main loop: state machine, movement, vision, alarm, loot,
+// tools, win and caught. All tuning lives in config.js; the level in
+// world.js; guards and cameras in guards.js; tools in tools.js; drawing
+// in render.js; staged shots in shots.js.
 'use strict';
 
-const game = {
-  state: 'title',
-  player: { x: VB.PLAYER_START.x, y: VB.PLAYER_START.y, dir: -Math.PI / 2, sneaking: false },
-  alarm: 0,
-  score: 0,
-  lootScore: 0,
-  timeBonus: 0,
-  elapsed: 0,
-  time: 0,
-  hunting: false,
-  caughtBy: null,
-  frozen: false,
-  stepAcc: 0,
+const VBGame = {
+  canvas: null,
+  ctx: null,
+  game: null,
 
-  snapshot() {
+  newGame: function () {
     return {
-      state: this.state,
-      alarm: Math.round(this.alarm * 10) / 10,
-      score: this.score,
-      lootScore: this.lootScore,
-      timeBonus: this.timeBonus,
-      elapsed: Math.round(this.elapsed * 10) / 10,
-      hunting: this.hunting,
-      coins: Tools.coins,
-      emp: Tools.emp,
-      empTimer: Math.round(Tools.empTimer * 10) / 10,
-      player: { x: Math.round(this.player.x), y: Math.round(this.player.y), sneaking: this.player.sneaking },
-      loot: World.loot.map((l) => ({ id: l.id, taken: l.taken })),
-      guards: Guards.list.map((g) => ({
-        name: g.name, x: Math.round(g.x), y: Math.round(g.y),
-        state: g.state, seen: g.seen,
-      })),
-      cameras: Guards.cameras.map((c) => ({ seen: c.seen, angle: Math.round(c.angle * 100) / 100 })),
-      caughtBy: this.caughtBy,
+      state: 'title',
+      time: 0,
+      elapsed: 0,
+      alarm: 0,
+      score: 0,
+      lootScore: 0,
+      lootTaken: 0,
+      timeBonus: 0,
+      diamondTaken: false,
+      coins: VB.COINS,
+      emps: VB.EMPS,
+      hunting: false,
+      caughtBy: null,
+      world: VBWorld.build(),
+      guards: VBGuards.makeGuards(),
+      cameras: VBGuards.makeCameras(),
+      coin: { active: false },
+      player: {
+        x: VB.START.x, y: VB.START.y,
+        dir: -Math.PI / 2, sneaking: false,
+      },
     };
   },
 
-  start() {
-    World.reset();
-    Guards.reset();
-    Tools.reset();
-    this.player.x = VB.PLAYER_START.x;
-    this.player.y = VB.PLAYER_START.y;
-    this.player.dir = -Math.PI / 2;
-    this.player.sneaking = false;
-    this.alarm = 0;
-    this.score = 0;
-    this.lootScore = 0;
-    this.timeBonus = 0;
-    this.elapsed = 0;
-    this.time = 0;
-    this.hunting = false;
-    this.caughtBy = null;
-    this.state = 'playing';
-    AudioFX.alarmStop();
-    AudioFX.click();
+  reset: function () {
+    this.game = this.newGame();
   },
 
-  togglePause() {
-    if (this.state === 'playing') {
-      this.state = 'paused';
-      AudioFX.alarmStop();
-    } else if (this.state === 'paused') {
-      this.state = 'playing';
-      AudioFX.click();
-    }
+  start: function () {
+    this.reset();
+    this.game.state = 'playing';
   },
 
-  update(dt) {
-    if (this.state !== 'playing') return;
-    this.time += dt;
-    this.elapsed += dt;
-
-    // Tools: coin toss pulls a guard away, EMP blinds the cameras loudly.
-    if (Input.wasPressed('q')) Tools.throwCoin(this.player);
-    if (Input.wasPressed('e')) this.alarm += Tools.fireEmp();
-    Tools.update(dt);
+  update: function (dt) {
+    const g = this.game;
+    if (g.state !== 'playing') return;
+    g.time += dt;
+    g.elapsed += dt;
 
     // Movement.
-    const mv = Input.moveVector();
-    this.player.sneaking = Input.sneaking && (mv.x !== 0 || mv.y !== 0);
-    const speed = this.player.sneaking ? VB.SNEAK_SPEED : VB.WALK_SPEED;
+    const mv = VBInput.move();
+    const sneaking = VBInput.sneaking();
+    g.player.sneaking = sneaking;
+    const speed = sneaking ? VB.SNEAK_SPEED : VB.WALK_SPEED;
     if (mv.x !== 0 || mv.y !== 0) {
-      this.player.dir = Math.atan2(mv.y, mv.x);
-      const moved = World.moveCircle(
-        this.player.x, this.player.y, VB.PLAYER_R,
-        mv.x * speed * dt, mv.y * speed * dt,
-      );
-      const movedDist = dist(this.player.x, this.player.y, moved.x, moved.y);
-      this.player.x = moved.x;
-      this.player.y = moved.y;
-      // Footstep ticks while actually moving.
-      this.stepAcc += movedDist;
-      if (this.stepAcc > 46) {
-        this.stepAcc = 0;
-        AudioFX.step(this.player.sneaking);
+      g.player.dir = Math.atan2(mv.y, mv.x);
+      const moved = VBWorld.moveCircle(g.world.walls, g.player.x, g.player.y,
+        VB.PLAYER_R, mv.x * speed * dt, mv.y * speed * dt);
+      g.player.x = moved.x;
+      g.player.y = moved.y;
+    }
+
+    // Tools.
+    if (VBInput.hit('KeyQ')) VBTools.throwCoin(g);
+    if (VBInput.hit('KeyE')) VBTools.fireEmp(g);
+    VBTools.stepCoin(g, dt);
+
+    // Cameras sweep (and count down EMP blindness).
+    for (let i = 0; i < g.cameras.length; i++) {
+      VBGuards.stepCamera(g.cameras[i], g.time, dt);
+    }
+
+    // Vision: who sees the thief right now?
+    let guardSees = false;
+    let cameraSees = false;
+    for (let i = 0; i < g.guards.length; i++) {
+      const gd = g.guards[i];
+      gd.seen = VBGuards.canSee(g.world.walls, gd.x, gd.y, gd.dir,
+        VB.VISION_RANGE, VB.VISION_HALF, g.player.x, g.player.y);
+      if (gd.seen) guardSees = true;
+    }
+    for (let i = 0; i < g.cameras.length; i++) {
+      const cam = g.cameras[i];
+      cam.seen = cam.blind <= 0 && VBGuards.canSee(g.world.walls, cam.x, cam.y + 8,
+        cam.angle, VB.CAMERA_RANGE, VB.CAMERA_HALF, g.player.x, g.player.y);
+      if (cam.seen) cameraSees = true;
+    }
+
+    // Alarm: rise while seen (sneaking softens it), decay while hidden.
+    let rise = 0;
+    if (guardSees) rise += VB.ALARM_GUARD;
+    if (cameraSees) rise += VB.ALARM_CAMERA;
+    if (rise > 0) {
+      g.alarm += rise * (sneaking ? VB.ALARM_SNEAK : 1) * dt;
+    } else {
+      g.alarm -= VB.ALARM_DECAY * dt;
+    }
+    if (g.alarm > 100) g.alarm = 100;
+    if (g.alarm < 0) g.alarm = 0;
+    if (g.alarm >= 100) g.hunting = true;
+    if (g.hunting && g.alarm < VB.HUNT_FLOOR) {
+      g.hunting = false;
+      for (let i = 0; i < g.guards.length; i++) {
+        if (g.guards[i].state === 'hunt') g.guards[i].state = 'patrol';
       }
     }
-
-    // Watchers.
-    const seen = Guards.update(dt, this.time, this.player, this.player.sneaking, this.hunting);
-    const sneakFactor = this.player.sneaking ? VB.ALARM_SNEAK_FACTOR : 1;
-    if (seen.guardSeen) {
-      if (!this._wasGuardSeen) AudioFX.spotted();
-      this.alarm += VB.ALARM_GUARD_RATE * sneakFactor * dt;
+    if (g.hunting) {
+      for (let i = 0; i < g.guards.length; i++) {
+        if (g.guards[i].state !== 'distracted') g.guards[i].state = 'hunt';
+      }
     }
-    if (seen.cameraSeen) this.alarm += VB.ALARM_CAMERA_RATE * sneakFactor * dt;
-    this._wasGuardSeen = seen.guardSeen;
-    if (!seen.guardSeen && !seen.cameraSeen) {
-      this.alarm -= VB.ALARM_DECAY * dt;
-    }
-    this.alarm = clamp(this.alarm, 0, 100);
+    if (g.alarm >= 70) VBAudio.alarmPulse(g.time);
 
-    // Alarm siren while the heat is on.
-    if (this.alarm >= 60) AudioFX.alarmStart();
-    else if (this.alarm < 40) AudioFX.alarmStop();
-
-    // Hunt triggers at a full meter; ends when the alarm cools down.
-    if (this.alarm >= 100 && !this.hunting) {
-      this.hunting = true;
-      AudioFX.spotted();
-    }
-    if (this.hunting && this.alarm < VB.HUNT_ALARM_FLOOR) {
-      this.hunting = false;
-      Guards.stopHunt();
+    // Guards move.
+    for (let i = 0; i < g.guards.length; i++) {
+      VBGuards.stepGuard(g.guards[i], g.world.walls, g.player, g.hunting, dt);
     }
 
     // Loot pickup.
-    const item = World.lootNear(this.player.x, this.player.y);
-    if (item) {
-      item.taken = true;
-      this.lootScore += item.value;
-      this.score += item.value;
-      AudioFX.pickup();
+    for (let i = 0; i < g.world.loot.length; i++) {
+      const l = g.world.loot[i];
+      if (l.taken) continue;
+      const dx = l.x - g.player.x;
+      const dy = l.y - g.player.y;
+      if (Math.sqrt(dx * dx + dy * dy) < VB.PICKUP_R + l.r) {
+        l.taken = true;
+        g.lootScore += l.value;
+        g.score += l.value;
+        g.lootTaken += 1;
+        if (l.id === 'diamond') g.diamondTaken = true;
+        VBAudio.pickup();
+      }
     }
 
     // Caught: a guard touches the thief.
-    const grabber = Guards.touchingPlayer(this.player);
-    if (grabber) {
-      this.state = 'caught';
-      this.caughtBy = grabber.name;
-      AudioFX.caught();
-      return;
+    for (let i = 0; i < g.guards.length; i++) {
+      const gd = g.guards[i];
+      const dx = gd.x - g.player.x;
+      const dy = gd.y - g.player.y;
+      if (Math.sqrt(dx * dx + dy * dy) < VB.CATCH_R + VB.GUARD_R * 0.4) {
+        g.state = 'caught';
+        g.caughtBy = gd.name;
+        VBAudio.caught();
+        return;
+      }
     }
 
-    // Win: diamond in hand and standing in the exit.
-    if (World.diamond.taken && World.inExit(this.player.x, this.player.y)) {
-      this.timeBonus = Math.max(0, 3000 - Math.floor(this.elapsed) * 10);
-      this.score = this.lootScore + this.timeBonus;
-      this.state = 'escaped';
-      AudioFX.alarmStop();
-      AudioFX.win();
+    // Escape: reach the green EXIT with the diamond.
+    const e = g.world.exit;
+    if (g.player.x + VB.PLAYER_R > e.x && g.player.x - VB.PLAYER_R < e.x + e.w &&
+        g.player.y + VB.PLAYER_R > e.y && g.player.y - VB.PLAYER_R < e.y + e.h) {
+      if (g.diamondTaken) {
+        g.timeBonus = Math.max(0, Math.round((VB.PAR_TIME - g.elapsed) * VB.BONUS_RATE));
+        g.score = g.lootScore + g.timeBonus;
+        g.state = 'escaped';
+        VBAudio.win();
+      }
     }
   },
 
-  handleKeys() {
-    if (Input.wasPressed('enter')) {
-      if (this.state === 'title' || this.state === 'caught' || this.state === 'escaped') {
+  frame: function (now) {
+    const dt = Math.min(0.05, (now - (this.last || now)) / 1000 || 0);
+    this.last = now;
+    // Edge-triggered keys.
+    if (VBInput.hit('Enter')) {
+      if (this.game.state === 'title' || this.game.state === 'caught' || this.game.state === 'escaped') {
+        VBAudio.ensure();
         this.start();
       }
     }
-    if (Input.wasPressed('p') || Input.wasPressed('escape')) {
-      this.togglePause();
+    // Re-read the game object: start() replaces it with a fresh one.
+    const g = this.game;
+    if (VBInput.hit('KeyP')) {
+      if (g.state === 'playing') g.state = 'paused';
+      else if (g.state === 'paused') g.state = 'playing';
     }
+    this.update(dt);
+    VBRender.draw(this.ctx, g);
+    VBInput.endFrame();
   },
 
-  frame(now) {
-    const dt = Math.min(0.05, (now - (this._last || now)) / 1000 || 0);
-    this._last = now;
-    this.handleKeys();
-    this.update(dt);
-    Render.draw(this);
-    Input.endFrame();
+  init: function () {
+    this.canvas = document.getElementById('game');
+    this.ctx = this.canvas.getContext('2d');
+    VBInput.init();
+    this.reset();
+    const self = this;
+
+    // Staged screenshot mode: freeze one composed frame, same render path.
+    const shot = new URLSearchParams(window.location.search).get('shot');
+    if (shot) {
+      VBShots.apply(parseInt(shot, 10) || 1, this.game);
+      VBRender.draw(this.ctx, this.game);
+      // A getter, so the hook always reads the live game object even
+      // after a reset replaces it.
+      window.VAULTBREAK = { get game() { return self.game; }, shots: true };
+      return;
+    }
+
+    const loop = function (now) {
+      self.frame(now);
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    // Probe hook for headless playtests. `game` is a getter so it never
+    // goes stale when reset() swaps in a fresh game object.
+    window.VAULTBREAK = {
+      get game() { return self.game; },
+      start: function () { self.start(); },
+      state: function () { return self.game.state; },
+    };
   },
 };
 
-function boot() {
-  const canvas = document.getElementById('game');
-  Render.init(canvas);
-  Input.init();
-  World.reset();
-  Guards.reset();
-  Tools.reset();
-
-  // Test / screenshot hook: the live game state, readable from DevTools.
-  window.__vaultbreak = game;
-
-  const shot = new URLSearchParams(window.location.search).get('shot');
-  if (shot) {
-    // Staged scene: compose, draw one frozen frame, no loop.
-    game.frozen = true;
-    Shots.apply(parseInt(shot, 10) || 1, game);
-    Render.draw(game);
-    return;
-  }
-
-  const loop = (now) => {
-    game.frame(now);
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-}
-
-document.addEventListener('DOMContentLoaded', boot);
+window.addEventListener('DOMContentLoaded', function () {
+  VBGame.init();
+});

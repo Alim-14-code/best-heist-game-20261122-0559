@@ -1,74 +1,78 @@
-// Tools at a cost: the thief carries a few coins and EMP charges.
-// A tossed coin clinks on the floor and pulls the nearest guard off its
-// patrol to investigate. An EMP burst blinds both cameras for a while —
-// but the pulse is loud, so it costs alarm. Both are limited; when they
-// are gone, the thief is on foot and on nerve alone.
+// VAULTBREAK tools: the coin and the EMP. Tools are what give the heist
+// depth — a coin buys a quiet route, an EMP buys blind cameras, both at
+// a cost (a limited count, and the EMP feeds the alarm).
 'use strict';
 
-const Tools = {
-  coins: VB.COIN_START,
-  emp: VB.EMP_START,
-  empTimer: 0, // seconds of camera blackout remaining
-  coin: null, // { x, y, t } — a landed coin guards walk toward, or null
-  flash: 0, // EMP screen-flash timer for the renderer
-
-  reset() {
-    this.coins = VB.COIN_START;
-    this.emp = VB.EMP_START;
-    this.empTimer = 0;
-    this.coin = null;
-    this.flash = 0;
-  },
-
-  get camerasDown() {
-    return this.empTimer > 0;
-  },
-
-  // Throw a coin ahead of the thief. The nearest guard that can hear it
-  // leaves its patrol to investigate the landing spot.
-  throwCoin(player) {
-    if (this.coins <= 0) return false;
-    this.coins -= 1;
-    const lx = clamp(player.x + Math.cos(player.dir) * VB.COIN_THROW_DIST, 40, VB.W - 40);
-    const ly = clamp(player.y + Math.sin(player.dir) * VB.COIN_THROW_DIST, 40, VB.H - 40);
-    this.coin = { x: lx, y: ly, t: VB.COIN_DISTRACT_SECS };
-    AudioFX.coinToss();
-    this.distractNearestGuard(lx, ly);
+const VBTools = {
+  // Throw a coin from the thief toward (dx, dy) (a unit vector). The
+  // coin lands about 220 pixels ahead after a short flight; the nearest
+  // guard within range of the landing point walks over to investigate.
+  // Guards already hunting ignore coins.
+  throwCoin: function (game) {
+    if (game.coins <= 0) return false;
+    if (game.coin.active) return false;
+    game.coins -= 1;
+    const px = game.player.x;
+    const py = game.player.y;
+    const dx = Math.cos(game.player.dir);
+    const dy = Math.sin(game.player.dir);
+    game.coin = {
+      active: true,
+      x: px, y: py,
+      sx: px, sy: py,
+      tx: px + dx * 220, ty: py + dy * 220,
+      t: 0, dur: 0.35, landed: false,
+    };
+    VBAudio.coin();
     return true;
   },
 
-  distractNearestGuard(lx, ly) {
-    let best = null, bestD = VB.COIN_HEAR_RANGE;
-    for (const g of Guards.list) {
-      if (g.state === 'hunt') continue; // a hunting guard ignores coins
-      const d = dist(g.x, g.y, lx, ly);
-      if (d < bestD) { best = g; bestD = d; }
+  // Advance a flying coin; when it lands, distract the nearest guard.
+  stepCoin: function (game, dt) {
+    const c = game.coin;
+    if (!c.active) return;
+    c.t += dt;
+    const k = Math.min(1, c.t / c.dur);
+    c.x = c.sx + (c.tx - c.sx) * k;
+    c.y = c.sy + (c.ty - c.sy) * k;
+    if (k >= 1 && !c.landed) {
+      c.landed = true;
+      let best = null;
+      let bestD = VB.COIN_RANGE;
+      for (let i = 0; i < game.guards.length; i++) {
+        const g = game.guards[i];
+        if (g.state === 'hunt' || game.hunting) continue;
+        const dx = g.x - c.x;
+        const dy = g.y - c.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < bestD) { bestD = d; best = g; }
+      }
+      if (best) {
+        best.state = 'distracted';
+        best.distract = { x: c.x, y: c.y };
+        best.wait = VB.COIN_TIME;
+        best.seen = false;
+      }
+      // The coin stays on the floor briefly as a visual, then clears.
+      c.clearIn = 1.2;
     }
-    if (best) {
-      best.state = 'distracted';
-      best.investigateX = lx;
-      best.investigateY = ly;
-      best.distractTimer = VB.COIN_DISTRACT_SECS;
+    if (c.landed) {
+      c.clearIn -= dt;
+      if (c.clearIn <= 0) c.active = false;
     }
   },
 
-  // Fire the EMP: cameras go dark, the alarm jumps from the noise.
-  // Returns the alarm cost, or 0 when no charge is left.
-  fireEmp() {
-    if (this.emp <= 0) return 0;
-    this.emp -= 1;
-    this.empTimer = VB.EMP_DISABLE_SECS;
-    this.flash = 0.35;
-    AudioFX.empBurst();
-    return VB.EMP_ALARM_COST;
-  },
-
-  update(dt) {
-    if (this.empTimer > 0) this.empTimer = Math.max(0, this.empTimer - dt);
-    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt);
-    if (this.coin) {
-      this.coin.t -= dt;
-      if (this.coin.t <= 0) this.coin = null;
+  // Fire the EMP: every camera goes blind for a while, and the burst
+  // feeds the alarm. Returns false when no EMPs are left.
+  fireEmp: function (game) {
+    if (game.emps <= 0) return false;
+    game.emps -= 1;
+    for (let i = 0; i < game.cameras.length; i++) {
+      game.cameras[i].blind = VB.EMP_TIME;
+      game.cameras[i].seen = false;
     }
+    game.alarm = Math.min(100, game.alarm + VB.EMP_COST);
+    VBAudio.emp();
+    return true;
   },
 };

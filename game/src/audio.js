@@ -1,104 +1,82 @@
-// Synthesized sound effects: plain WebAudio oscillators, no audio files,
-// no network. The context is created lazily on the first user gesture so
-// browsers do not block it, and every effect is a no-op until then.
+// VAULTBREAK sound: synthesized WebAudio effects, no audio files.
+// The context is created lazily on the first key press (browsers block
+// audio before a gesture); every call is guarded so a headless load with
+// no audio device never throws.
 'use strict';
 
-const AudioFX = {
+const VBAudio = {
   ctx: null,
-  master: null,
-  alarmOn: false,
-  alarmTimer: null,
+  lastPulse: 0,
 
-  ensure() {
-    if (this.ctx) {
-      if (this.ctx.state === 'suspended') this.ctx.resume();
-      return true;
-    }
+  ensure: function () {
+    if (this.ctx) return this.ctx;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return false;
+      if (!AC) return null;
       this.ctx = new AC();
-      this.master = this.ctx.createGain();
-      this.master.gain.value = 0.16;
-      this.master.connect(this.ctx.destination);
-      return true;
     } catch (e) {
-      return false;
+      this.ctx = null;
+    }
+    return this.ctx;
+  },
+
+  tone: function (freq, dur, type, vol, when) {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    try {
+      const t0 = ctx.currentTime + (when || 0);
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(vol || 0.12, t0);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    } catch (e) {
+      // Audio is decoration; a failure must never break the game.
     }
   },
 
-  // One short oscillator blip.
-  blip(freq, dur, type, vol, slideTo) {
-    if (!this.ensure()) return;
-    const t0 = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = type || 'sine';
-    osc.frequency.setValueAtTime(freq, t0);
-    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
-    gain.gain.setValueAtTime(vol || 0.5, t0);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-    osc.connect(gain);
-    gain.connect(this.master);
-    osc.start(t0);
-    osc.stop(t0 + dur + 0.02);
+  // A bright two-note blip when loot is picked up.
+  pickup: function () {
+    this.tone(880, 0.09, 'triangle', 0.14, 0);
+    this.tone(1318, 0.12, 'triangle', 0.12, 0.07);
   },
 
-  step(sneak) {
-    this.blip(sneak ? 140 : 190, 0.05, 'triangle', sneak ? 0.12 : 0.2);
+  // A low pulse while the alarm is high; callers throttle it.
+  alarmPulse: function (now) {
+    if (now - this.lastPulse < 0.6) return;
+    this.lastPulse = now;
+    this.tone(220, 0.12, 'square', 0.05, 0);
   },
 
-  pickup() {
-    this.blip(660, 0.09, 'sine', 0.5);
-    setTimeout(() => this.blip(880, 0.09, 'sine', 0.5), 70);
-    setTimeout(() => this.blip(1320, 0.16, 'sine', 0.5), 140);
+  // A descending sting when a guard catches the thief.
+  caught: function () {
+    this.tone(392, 0.16, 'sawtooth', 0.14, 0);
+    this.tone(311, 0.16, 'sawtooth', 0.14, 0.14);
+    this.tone(233, 0.34, 'sawtooth', 0.14, 0.28);
   },
 
-  spotted() {
-    this.blip(520, 0.14, 'square', 0.3, 780);
+  // A rising jingle for a clean getaway.
+  win: function () {
+    const notes = [523, 659, 784, 1046];
+    for (let i = 0; i < notes.length; i++) {
+      this.tone(notes[i], 0.16, 'triangle', 0.13, i * 0.11);
+    }
   },
 
-  // Coin toss: a bright metallic clink that fades with distance.
-  coinToss() {
-    this.blip(1900, 0.07, 'square', 0.22, 2400);
-    setTimeout(() => this.blip(2400, 0.06, 'square', 0.18, 1900), 90);
+  // A soft metallic clink for a thrown coin.
+  coin: function () {
+    this.tone(2093, 0.05, 'square', 0.06, 0);
+    this.tone(1568, 0.07, 'square', 0.05, 0.05);
   },
 
-  // EMP burst: a low zap; the cameras go dark for a while.
-  empBurst() {
-    this.blip(320, 0.28, 'sawtooth', 0.5, 60);
-    setTimeout(() => this.blip(180, 0.2, 'square', 0.3, 50), 120);
-  },
-
-  alarmStart() {
-    if (this.alarmOn) return;
-    this.alarmOn = true;
-    const twoTone = () => {
-      if (!this.alarmOn) return;
-      this.blip(740, 0.22, 'square', 0.14);
-      setTimeout(() => { if (this.alarmOn) this.blip(560, 0.22, 'square', 0.14); }, 240);
-    };
-    twoTone();
-    this.alarmTimer = setInterval(twoTone, 500);
-  },
-
-  alarmStop() {
-    this.alarmOn = false;
-    if (this.alarmTimer) { clearInterval(this.alarmTimer); this.alarmTimer = null; }
-  },
-
-  caught() {
-    this.alarmStop();
-    this.blip(220, 0.5, 'sawtooth', 0.5, 55);
-    setTimeout(() => this.blip(110, 0.6, 'sawtooth', 0.4, 40), 120);
-  },
-
-  win() {
-    const notes = [523, 659, 784, 1047];
-    notes.forEach((f, i) => setTimeout(() => this.blip(f, 0.22, 'triangle', 0.5), i * 110));
-  },
-
-  click() {
-    this.blip(440, 0.06, 'square', 0.25);
+  // A low zap for the EMP.
+  emp: function () {
+    this.tone(160, 0.22, 'sawtooth', 0.1, 0);
+    this.tone(90, 0.3, 'sawtooth', 0.09, 0.08);
   },
 };

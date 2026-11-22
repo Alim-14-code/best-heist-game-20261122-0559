@@ -1,48 +1,64 @@
-// Keyboard input: WASD + arrow keys to move, Shift to sneak, Q to toss a
-// coin, E to fire the EMP, P / Escape to pause, Enter to start or restart.
-// Tracks held keys and edge-triggered presses so the game loop can read both.
+// VAULTBREAK keyboard input. Tracks held keys and edge-triggered presses
+// (a press fires once when the key goes down, not while it is held).
 'use strict';
 
-const Input = {
-  keys: {},
-  pressed: {}, // edge-triggered: true only on the frame the key went down
+const VBInput = {
+  held: {},
+  pressed: {},
+  onKey: null, // optional callback(code) for edge presses
 
-  init() {
-    window.addEventListener('keydown', (e) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+  init: function () {
+    const self = this;
+    window.addEventListener('keydown', function (e) {
+      if (e.code === 'ArrowUp' || e.code === 'ArrowDown' ||
+          e.code === 'ArrowLeft' || e.code === 'ArrowRight' ||
+          e.code === 'Space') {
         e.preventDefault();
       }
-      if (!e.repeat) this.pressed[e.key.toLowerCase()] = true;
-      this.keys[e.key.toLowerCase()] = true;
-      AudioFX.ensure();
+      if (!e.repeat) {
+        self.pressed[e.code] = true;
+        if (self.onKey) self.onKey(e.code);
+      }
+      self.held[e.code] = true;
     });
-    window.addEventListener('keyup', (e) => {
-      this.keys[e.key.toLowerCase()] = false;
+    window.addEventListener('keyup', function (e) {
+      self.held[e.code] = false;
     });
-    window.addEventListener('blur', () => { this.keys = {}; });
+    window.addEventListener('blur', function () {
+      self.held = {};
+    });
   },
 
-  // Normalised movement vector from the held movement keys.
-  moveVector() {
-    let x = 0, y = 0;
-    if (this.keys['a'] || this.keys['arrowleft']) x -= 1;
-    if (this.keys['d'] || this.keys['arrowright']) x += 1;
-    if (this.keys['w'] || this.keys['arrowup']) y -= 1;
-    if (this.keys['s'] || this.keys['arrowdown']) y += 1;
-    if (x !== 0 && y !== 0) { x *= Math.SQRT1_2; y *= Math.SQRT1_2; }
-    return { x, y };
+  down: function (code) {
+    return !!this.held[code];
   },
 
-  get sneaking() {
-    return !!(this.keys['shift']);
+  // True once, on the frame after the key went down.
+  hit: function (code) {
+    return !!this.pressed[code];
   },
 
-  // Was this key pressed since the last endFrame()? Case-insensitive.
-  wasPressed(key) {
-    return !!this.pressed[key.toLowerCase()];
+  // Movement vector from WASD or the arrow keys, normalised.
+  move: function () {
+    let x = 0;
+    let y = 0;
+    if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
+    if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
+    if (this.down('KeyW') || this.down('ArrowUp')) y -= 1;
+    if (this.down('KeyS') || this.down('ArrowDown')) y += 1;
+    if (x !== 0 && y !== 0) {
+      const inv = 1 / Math.sqrt(2);
+      x *= inv;
+      y *= inv;
+    }
+    return { x: x, y: y };
   },
 
-  endFrame() {
+  sneaking: function () {
+    return this.down('ShiftLeft') || this.down('ShiftRight');
+  },
+
+  endFrame: function () {
     this.pressed = {};
   },
 };
