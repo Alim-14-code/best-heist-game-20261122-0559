@@ -1,4 +1,4 @@
-// VAULTBREAK v2 — hand-in program for best-heist-game-20261122-0559.
+// VAULTBREAK hand-in program for best-heist-game-20261122-0559.
 // Copies game/ and screenshots/ from this repository to the output
 // directory and writes /output/dossier.json with buildDossier from the
 // kit's vendor/makefun-game.ts. Outside the grader, MAKEFUN_OUTPUT_DIR
@@ -28,12 +28,14 @@ const CAPS = {
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
   game_max_bytes: 50331648,
+  game_path_max_bytes: 1000,
 };
 
 function clearDirContents(dir) {
   // Clear only the contents of dir, never dir itself: in the grader
   // /output is a mounted volume and removing the mount point fails
-  // with EBUSY. mkdir first so a missing dir is created.
+  // with EBUSY. Make the directory first, then list and remove its
+  // children one by one.
   mkdirSync(dir, { recursive: true });
   for (const entry of readdirSync(dir)) {
     rmSync(join(dir, entry), { recursive: true, force: true });
