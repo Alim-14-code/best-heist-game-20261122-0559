@@ -12,6 +12,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -29,8 +30,18 @@ const CAPS = {
   game_max_bytes: 50331648,
 };
 
+function clearDirContents(dir) {
+  // Clear only the contents of dir, never dir itself: in the grader
+  // /output is a mounted volume and removing the mount point fails
+  // with EBUSY. mkdir first so a missing dir is created.
+  mkdirSync(dir, { recursive: true });
+  for (const entry of readdirSync(dir)) {
+    rmSync(join(dir, entry), { recursive: true, force: true });
+  }
+}
+
 function buildInto(dir) {
-  rmSync(dir, { recursive: true, force: true });
+  clearDirContents(dir);
   mkdirSync(join(dir, 'game'), { recursive: true });
   mkdirSync(join(dir, 'screenshots'), { recursive: true });
   cpSync(join(REPO_ROOT, 'game'), join(dir, 'game'), { recursive: true });
